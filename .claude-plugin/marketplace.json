@@ -1,0 +1,16 @@
+{
+  "name": "liamtsai-skill",
+  "owner": { "name": "LiamTsai" },
+  "plugins": [
+    {
+      "name": "progress-bars",
+      "source": "./progress-bars",
+      "description": "輸入框上方的進度條：每個需求、每個 session 一列，顯示百分比、已用時間與預估剩餘時間"
+    },
+    {
+      "name": "retro",
+      "source": "./retro",
+      "description": "偵測你在糾正 Claude 時主動詢問復盤，產生 CLAUDE.md / Skill 修改建議，一鍵套用"
+    }
+  ]
+}

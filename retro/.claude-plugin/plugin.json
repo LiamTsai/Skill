@@ -1,0 +1,10 @@
+{
+  "name": "retro",
+  "version": "0.1.0",
+  "description": "Notices when you correct Claude, offers a retrospective, and proposes CLAUDE.md or skill changes you apply with one press",
+  "author": {
+    "name": "LiamTsai"
+  },
+  "repository": "https://github.com/LiamTsai/Skill",
+  "types": "./types/index.d.ts"
+}
