@@ -23,6 +23,8 @@ const HIDDEN_KEY = 'hidden'
 const GUIDE = `# Progress bars
 The person watches a progress band above the prompt. Every request they send already has its own row there, opened when the turn starts and ticked when it ends, under the id \`current\`. When answering takes more than a couple of steps, call \`${TOOL_ID}\` with \`id: "current"\`, your honest \`percent\` done and \`eta_minutes\` left: once you know the plan, then after each meaningful step (the row is closed for you when the turn ends). Use a separate stable \`id\` and a short \`title\` only for work that runs beside it (a side session you started, a long build); close those with \`status: "done"\` or \`"failed"\`. Subagents you start with the Agent tool are tracked on their own. Never skip the updates on multi-step work.`
 
+const NUDGE = `This request has a row in the person's progress band. If answering it takes any tool call, your FIRST tool call must be \`${TOOL_ID}\` with \`id: "current"\`, your \`percent\` (usually 0-10) and \`eta_minutes\`; then update it after each meaningful step. Skip it only for an answer with no tool call at all.`
+
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)))
 
 function upsert(list: Task[], id: string, patch: Partial<Task> & { title?: string }, now: number): Task[] {
@@ -54,11 +56,11 @@ function since(from: number, now: number): string {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`
 }
 
-/** Time spent, and while running the reported time left: "3m / ~25m". */
+/** Time spent, and while running the reported time left: "3m / ~25m", or "3m / ~?" before any estimate. */
 function timeText(task: Task, now: number): string {
   if (task.status !== 'running') return since(task.startedAt, task.updatedAt)
   const left = minutesLeft(task, now)
-  return left === null ? since(task.startedAt, now) : `${since(task.startedAt, now)} / ~${left}m`
+  return `${since(task.startedAt, now)} / ${left === null ? '~?' : `~${left}m`}`
 }
 
 /** A tool's answer is JSON text; anything else reads as null. */
@@ -188,6 +190,13 @@ export const register: Register = on => {
     $.clock.every(30_000, () => void update($, tick, n => n + 1))
 
     return next(e)
+  })
+
+  // The system prompt alone is not enough for the model to report, so each
+  // typed request carries the reminder too.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command !== undefined || e.isMeta === true || e.text.trim() === '') return next(e)
+    return next({ ...e, context: [...(e.context ?? []), NUDGE] })
   })
 
   on('prompt.compose', async ($, e, next) => {

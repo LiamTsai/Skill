@@ -159,13 +159,19 @@ test('every request gets a row that "current" updates and the turn closes', asyn
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({ result: '', text: '{}' }))
   on('session.id', () => ({ value: 'cli-session' }) as never)
   on('store.set', () => ({ value: undefined }) as never)
+  on('prompt.submit', ($, e) => ({ text: e.text, context: e.context }))
   await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
 
-  await $.turn.start({ text: '復盤也裝成全域\n第二行', turnId: 't1' })
-  await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'current', percent: 40, eta_minutes: 3 })
+  const submitted = await $.prompt.submit({ text: '復盤也裝成全域' } as never)
+  expect(String(submitted.context)).toContain('mcp__progress-bars__report_progress')
 
+  await $.turn.start({ text: '復盤也裝成全域\n第二行', turnId: 't1' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   let texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toContain('0s / ~?')
+
+  await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'current', percent: 40, eta_minutes: 3 })
+  texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts).toContain('復盤也裝成全域')
   expect(texts).toContain('40%')
   expect(texts).toContain('0s / ~3m')
