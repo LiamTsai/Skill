@@ -10,6 +10,8 @@ export type Task = {
   status: TaskStatus
   startedAt: number
   updatedAt: number
+  /** How many times report_progress updated it; an estimate shows from the second on */
+  reports?: number
   /** A background subagent's id, to mark it done when it stops */
   agentId?: string
 }

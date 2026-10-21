@@ -21,9 +21,9 @@ const SYNC_MS = 10_000
 const HIDDEN_KEY = 'hidden'
 
 const GUIDE = `# Progress bars
-The person watches a progress band above the prompt. Every request they send already has its own row there, opened when the turn starts and ticked when it ends, under the id \`current\`. When answering takes more than a couple of steps, call \`${TOOL_ID}\` with \`id: "current"\`, your honest \`percent\` done and \`eta_minutes\` left: once you know the plan, then after each meaningful step (the row is closed for you when the turn ends). Use a separate stable \`id\` and a short \`title\` only for work that runs beside it (a side session you started, a long build); close those with \`status: "done"\` or \`"failed"\`. Subagents you start with the Agent tool are tracked on their own. Never skip the updates on multi-step work.`
+The person watches a progress band above the prompt. Every request they send already has its own row there, opened when the turn starts and ticked when it ends, under the id \`current\`. When answering takes more than a couple of steps, call \`${TOOL_ID}\` with \`id: "current"\` and your honest \`percent\` done once you know the plan, then after each meaningful step with \`percent\` and, once you have a basis, \`eta_minutes\` left (the row is closed for you when the turn ends). Use a separate stable \`id\` and a short \`title\` only for work that runs beside it (a side session you started, a long build); close those with \`status: "done"\` or \`"failed"\`. Subagents you start with the Agent tool are tracked on their own. Never skip the updates on multi-step work.`
 
-const NUDGE = `This request has a row in the person's progress band. If answering it takes any tool call, your FIRST tool call must be \`${TOOL_ID}\` with \`id: "current"\`, your \`percent\` (usually 0-10) and \`eta_minutes\`; then update it after each meaningful step. Skip it only for an answer with no tool call at all.`
+const NUDGE = `This request has a row in the person's progress band. If answering it takes any tool call, your FIRST tool call must be \`${TOOL_ID}\` with \`id: "current"\` and your \`percent\` (usually 0-10), with no \`eta_minutes\`: there is nothing to estimate from yet. After each meaningful step, update it with \`percent\` and, once a step done gives you a basis, \`eta_minutes\`. Skip it only for an answer with no tool call at all.`
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)))
 
@@ -56,11 +56,14 @@ function since(from: number, now: number): string {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`
 }
 
-/** Time spent, and while running the reported time left: "3m / ~25m", or "3m / ~?" before any estimate. */
+/**
+ * Time spent, and while running the time left: "3m / ~25m". The estimate shows
+ * only from a task's second report on: the first one has nothing to go by yet.
+ */
 function timeText(task: Task, now: number): string {
   if (task.status !== 'running') return since(task.startedAt, task.updatedAt)
-  const left = minutesLeft(task, now)
-  return `${since(task.startedAt, now)} / ${left === null ? '~?' : `~${left}m`}`
+  const left = (task.reports ?? 0) >= 2 ? minutesLeft(task, now) : null
+  return left === null ? since(task.startedAt, now) : `${since(task.startedAt, now)} / ~${left}m`
 }
 
 /** A tool's answer is JSON text; anything else reads as null. */
@@ -73,22 +76,13 @@ function parseJson(text: unknown): unknown {
   }
 }
 
-/** The task a session's row stands for: its newest running one, else its newest. */
-function headTask(list: Task[]): Task | undefined {
-  const running = list.filter(t => t.status === 'running')
-  const pool = running.length > 0 ? running : list
-  return [...pool].sort((a, b) => b.updatedAt - a.updatedAt)[0]
-}
+/** One session as every band draws it: a header row, then its tasks. */
+type Group = { id: string; title: string; isRunning: boolean; tasks: Task[]; canFocus: boolean; isSelf: boolean }
 
-type Line = {
-  key: string
-  status: TaskStatus | 'idle'
-  title: string
-  percent: number | null
-  eta: string
-  /** Another session: pressing the title switches to it */
-  session?: SessionRow
-}
+const newest = (list: Task[]) => Math.max(0, ...list.map(t => t.updatedAt))
+
+/** The same order in every session: by when each session's first task started. */
+const groupOrder = (g: Group) => (g.tasks.length > 0 ? Math.min(...g.tasks.map(t => t.startedAt)) : Number.MAX_SAFE_INTEGER)
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -115,6 +109,7 @@ export const register: Register = on => {
     let published = ''
     let publishedAt = 0
     let isSyncing = false
+    let syncs = 0
     const syncOnce = async () => {
       if (isSyncing) return
       isSyncing = true
@@ -129,6 +124,15 @@ export const register: Register = on => {
               : { id: `cli:${await $.session.id()}`, title: '', isDesktop: false }
           const found = me
           await update($, self, () => found)
+        } else if (me.isDesktop && ++syncs % 6 === 0) {
+          // The app names a session after its first turns; pick the name up.
+          const got = await $.tool.call({ tool: GET_SESSION, session_id: 'self' } as never).catch(() => undefined)
+          const title = (parseJson(got?.text) as { title?: string } | null)?.title
+          if (title !== undefined && title !== me.title) {
+            const renamed = { ...me, title }
+            await update($, self, () => renamed)
+            me = renamed
+          }
         }
 
         const now = await $.clock.now()
@@ -224,7 +228,11 @@ export const register: Register = on => {
     }
 
     const now = await $.clock.now()
-    await update($, tasks, list => upsert(list, id, patch, now))
+    const target = id
+    await update($, tasks, list => {
+      const reports = (list.find(t => t.id === target)?.reports ?? 0) + 1
+      return upsert(list, target, { ...patch, reports }, now)
+    })
 
     return { result: `Progress for "${id}" recorded.` }
   })
@@ -300,6 +308,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const me = await read($, self)
     const mine = await read($, tasks)
     const rest = await read($, others)
     const closedAt = await read($, hidden)
@@ -307,123 +316,109 @@ export const register: Register = on => {
     const below = await next(e)
     if (e.props.hasSurvey) return below
 
-    const now = await $.clock.now()
-    const lines: Line[] = []
-    for (const t of mine) {
-      lines.push({
-        key: t.id,
-        status: t.status,
-        title: t.title,
-        percent: t.percent,
-        eta: timeText(t, now),
-      })
-    }
-    for (const s of rest) {
-      // Closed with ×: back only once that session reports something newer.
-      const at = closedAt[s.id]
-      if (at !== undefined && Math.max(0, ...s.tasks.map(t => t.updatedAt)) <= at) continue
-      const head = headTask(s.tasks)
-      const allDone = s.tasks.length > 0 && s.tasks.every(t => t.status === 'done')
-      const status: Line['status'] =
-        head?.status === 'running' || (s.isRunning && head === undefined)
-          ? 'running'
-          : head?.status === 'failed'
-            ? 'failed'
-            : allDone
-              ? 'done'
-              : s.isRunning
-                ? 'running'
-                : 'idle'
-      lines.push({
-        key: s.id,
-        status,
-        title: head !== undefined && head.status === 'running' ? `${s.title} · ${head.title}` : s.title,
-        percent: allDone ? 100 : head?.status === 'running' ? head.percent : null,
-        eta: head !== undefined ? timeText(head, now) : status === 'running' ? '執行中' : '',
-        session: s,
-      })
-    }
-    if (lines.length === 0) return below
+    // Every session draws the same groups in the same order: this session is
+    // one of them, built from its own tasks, the rest from the shared store.
+    const meId = me?.id ?? 'self'
+    const groups: Group[] = [
+      { id: meId, title: me?.title || '這個 session', isRunning: e.props.isWorking, tasks: mine, canFocus: false, isSelf: true },
+      ...rest.map(s => ({ ...s, isSelf: false })),
+    ]
+    groups.sort((a, b) => groupOrder(a) - groupOrder(b) || a.id.localeCompare(b.id))
 
+    const shown: Array<{ group: Group; tasks: Task[] }> = []
+    for (const g of groups) {
+      // × on a session or a task hides it everywhere until it reports something newer.
+      const at = closedAt[g.id]
+      if (at !== undefined && newest(g.tasks) <= at) continue
+      const visible = g.tasks
+        .filter(t => !(closedAt[`${g.id}/${t.id}`] !== undefined && t.updatedAt <= (closedAt[`${g.id}/${t.id}`] ?? 0)))
+        .sort((a, b) => a.startedAt - b.startedAt)
+      if (visible.length === 0 && !g.isRunning) continue
+      shown.push({ group: g, tasks: visible })
+    }
+    if (shown.length === 0) return below
+
+    const now = await $.clock.now()
     const { Box, Text, Button } = $.ui.resolve(e)
     const cols = Math.max(40, e.props.bodyColumns)
-    const titleW = Math.min(34, Math.floor(cols * 0.32))
-    // icon 2 + gaps 5 + percent 4 + time 12 + close 1
-    const barW = Math.max(8, cols - titleW - 24 - 2)
+    const indent = 2
+    const titleW = Math.min(34, Math.floor(cols * 0.3))
+    // indent 2 + icon 2 + gaps 5 + percent 4 + time 12 + close 1
+    const barW = Math.max(8, cols - titleW - indent - 24 - 2)
 
-    const focus = async (s: SessionRow) => {
-      if (!s.canFocus) {
-        $.ui.toast(`App 只允許切換到這個 session 開出的 session，請從側邊欄點開「${s.title}」`)
+    const close = async (key: string) => {
+      const closed = { ...closedAt, [key]: await $.clock.now() }
+      await update($, hidden, () => closed)
+      const stored = ((await $.store.get(HIDDEN_KEY).catch(() => undefined)) ?? {}) as Record<string, number>
+      await $.store.set(HIDDEN_KEY, { ...stored, ...closed }).catch(() => undefined)
+    }
+
+    const focus = async (g: Group) => {
+      if (g.isSelf) return
+      if (!g.canFocus) {
+        $.ui.toast(`App 只允許切換到這個 session 開出的 session，請從側邊欄點開「${g.title}」`)
         return
       }
-      const r = await $.tool.call({ tool: OPEN_SESSION, session_id: s.id, target: 'focus' } as never).catch(
+      const r = await $.tool.call({ tool: OPEN_SESSION, session_id: g.id, target: 'focus' } as never).catch(
         (err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }),
       )
-      if (r.deny !== undefined || r.isError === true) $.ui.toast(`無法切換到「${s.title}」：${r.deny ?? r.text ?? ''}`)
+      if (r.deny !== undefined || r.isError === true) $.ui.toast(`無法切換到「${g.title}」：${r.deny ?? r.text ?? ''}`)
     }
 
     return (
       <Box flexDirection="column">
         {below}
-        {lines.map(l => {
-          const color = l.status === 'done' ? 'success' : l.status === 'failed' ? 'error' : l.status === 'idle' ? 'subtle' : 'claude'
-          const icon = l.status === 'done' ? '✓' : l.status === 'failed' ? '✗' : l.status === 'idle' ? '○' : '●'
-          const filled = l.percent === null ? 0 : Math.round((barW * l.percent) / 100)
-          const session = l.session
-
-          return (
-            <Box key={`row:${l.key}`} flexDirection="row" gap={1}>
-              <Box width={2}>
-                <Text color={color}>{icon}</Text>
-              </Box>
-              <Box width={titleW}>
-                {session === undefined ? (
-                  <Text wrap="truncate-end" dimColor={l.status === 'done'}>
-                    {l.title}
+        {shown.map(({ group: g, tasks: list }) => (
+          <Box key={`group:${g.id}`} flexDirection="column">
+            <Box flexDirection="row" gap={1}>
+              <Box flexGrow={1}>
+                <Button key={`open:${g.id}`} plain onPress={() => focus(g)}>
+                  <Text weight="semibold" wrap="truncate-end">
+                    {g.title}
                   </Text>
-                ) : (
-                  <Button key={`open:${l.key}`} plain onPress={() => focus(session)}>
-                    <Text wrap="truncate-end" dimColor={l.status === 'done' || l.status === 'idle'}>
-                      {l.title}
-                    </Text>
-                  </Button>
-                )}
+                  {list.length === 0 ? <Text dimColor>  執行中</Text> : ''}
+                </Button>
               </Box>
-              <Box width={barW}>
-                <Text mono>
-                  <Text color={color} dimColor={l.status === 'done'}>
-                    {'━'.repeat(filled)}
-                  </Text>
-                  <Text color="subtle">{'━'.repeat(barW - filled)}</Text>
-                </Text>
-              </Box>
-              <Box width={4} justifyContent="flex-end">
-                <Text tabular weight="semibold">
-                  {l.percent === null ? '…' : `${l.percent}%`}
-                </Text>
-              </Box>
-              <Box width={12}>
-                <Text dimColor tabular>
-                  {l.eta}
-                </Text>
-              </Box>
-              <Button
-                key={`close:${l.key}`}
-                plain
-                label="×"
-                onPress={async () => {
-                  if (session === undefined) await update($, tasks, list => list.filter(x => x.id !== l.key))
-                  else {
-                    const now = await $.clock.now()
-                    const closed = { ...(((await $.store.get(HIDDEN_KEY)) ?? {}) as Record<string, number>), [l.key]: now }
-                    await $.store.set(HIDDEN_KEY, closed)
-                    await update($, hidden, () => closed)
-                  }
-                }}
-              />
+              <Button key={`close:${g.id}`} plain label="×" onPress={() => close(g.id)} />
             </Box>
-          )
-        })}
+            {list.map(t => {
+              const color = t.status === 'done' ? 'success' : t.status === 'failed' ? 'error' : 'claude'
+              const icon = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : '●'
+              const filled = t.percent === null ? 0 : Math.round((barW * t.percent) / 100)
+              return (
+                <Box key={`row:${g.id}/${t.id}`} flexDirection="row" gap={1} marginLeft={indent}>
+                  <Box width={2}>
+                    <Text color={color}>{icon}</Text>
+                  </Box>
+                  <Box width={titleW}>
+                    <Text wrap="truncate-end" dimColor={t.status === 'done'}>
+                      {t.title}
+                    </Text>
+                  </Box>
+                  <Box width={barW}>
+                    <Text mono>
+                      <Text color={color} dimColor={t.status === 'done'}>
+                        {'━'.repeat(filled)}
+                      </Text>
+                      <Text color="subtle">{'━'.repeat(barW - filled)}</Text>
+                    </Text>
+                  </Box>
+                  <Box width={4} justifyContent="flex-end">
+                    <Text tabular weight="semibold">
+                      {t.percent === null ? '…' : `${t.percent}%`}
+                    </Text>
+                  </Box>
+                  <Box width={12}>
+                    <Text dimColor tabular>
+                      {timeText(t, now)}
+                    </Text>
+                  </Box>
+                  <Button key={`close:${g.id}/${t.id}`} plain label="×" onPress={() => close(`${g.id}/${t.id}`)} />
+                </Box>
+              )
+            })}
+          </Box>
+        ))}
       </Box>
     )
   })

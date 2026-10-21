@@ -26,6 +26,7 @@ test('reported tasks draw as rows that the × removes, on every surface', async 
     percent: 72,
     eta_minutes: 30,
   })
+  await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'reel', percent: 72, eta_minutes: 30 })
   await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'panel', title: '任務進度追蹤面板', status: 'done' })
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -44,7 +45,7 @@ test('reported tasks draw as rows that the × removes, on every surface', async 
   await clock.advance(10 * 60_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('10m / ~20m')
-  await ui.press({ key: 'close:reel' })
+  await ui.press({ key: 'close:self/reel' })
   const after = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(after).not.toContain('Motion graphics showreel')
   expect(after).toContain('任務進度追蹤面板')
@@ -62,7 +63,7 @@ test('other sessions draw with their reported progress, and only started ones sw
         id: 'local_b',
         title: 'Fix upload',
         updatedAt: Date.parse('2026-10-20T09:59:00Z'),
-        tasks: [{ id: 'up', title: 'localStorage 上傳', percent: 51, etaMinutes: 15, status: 'running', startedAt: Date.parse('2026-10-20T09:57:00Z'), updatedAt: Date.parse('2026-10-20T10:00:00Z') }],
+        tasks: [{ id: 'up', title: 'localStorage 上傳', percent: 51, etaMinutes: 15, status: 'running', startedAt: Date.parse('2026-10-20T09:57:00Z'), updatedAt: Date.parse('2026-10-20T10:00:00Z'), reports: 2 }],
       },
     ],
     [
@@ -113,9 +114,13 @@ test('other sessions draw with their reported progress, and only started ones sw
   await clock.advance(1_500)
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts).toContain('Motion graphics showreel')
-  expect(texts).toContain('Fix upload · localStorage 上傳')
+  expect(texts).toContain('Fix upload')
+  expect(texts).toContain('localStorage 上傳')
   expect(texts).toContain('51%')
   expect(texts).toContain('3m / ~15m')
+  // Same order everywhere: by each session's first task, sessions with no task last.
+  const order = ['Old finished', 'Fix upload', 'Motion graphics showreel', '進度條 mod'].map(name => texts.indexOf(name))
+  expect(order).toEqual([...order].sort((a, b) => a - b))
   // Finished long ago, still listed until closed; never reported and idle, not listed.
   expect(texts).toContain('Old finished')
   expect(texts).toContain('30m')
@@ -129,10 +134,10 @@ test('other sessions draw with their reported progress, and only started ones sw
 
   // × hides a session for every session, until it reports something newer.
   await ui.press({ key: 'close:local_b' })
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).not.toContain('Fix upload · localStorage 上傳')
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).not.toContain('localStorage 上傳')
   expect(Object.keys(store.get('hidden') as object)).toEqual(['local_b'])
   await clock.advance(20_000)
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).not.toContain('Fix upload · localStorage 上傳')
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).not.toContain('localStorage 上傳')
 
   const later = Date.parse('2026-10-20T10:00:25Z')
   store.set('s:local_b', {
@@ -142,7 +147,9 @@ test('other sessions draw with their reported progress, and only started ones sw
     tasks: [{ id: 'up2', title: '新的一步', percent: 10, etaMinutes: 5, status: 'running', startedAt: later, updatedAt: later }],
   })
   await clock.advance(10_000)
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('Fix upload · 新的一步')
+  const after = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(after).toContain('Fix upload')
+  expect(after).toContain('新的一步')
   await ui.unmount()
 })
 
@@ -168,7 +175,14 @@ test('every request gets a row that "current" updates and the turn closes', asyn
   await $.turn.start({ text: '復盤也裝成全域\n第二行', turnId: 't1' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   let texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts).toContain('0s / ~?')
+  expect(texts).toContain('0s')
+  expect(texts.join(' ')).not.toContain('~')
+
+  // A first report has nothing to estimate from: no time left shows yet.
+  await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'current', percent: 5, eta_minutes: 9 })
+  texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toContain('5%')
+  expect(texts.join(' ')).not.toContain('~')
 
   await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'current', percent: 40, eta_minutes: 3 })
   texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
