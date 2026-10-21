@@ -51,3 +51,7 @@ claude plugin test ./progress-bars
 ```
 
 `retro` 同理。
+
+## 授權
+
+[MIT](LICENSE)

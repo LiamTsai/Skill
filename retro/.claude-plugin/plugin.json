@@ -6,5 +6,6 @@
     "name": "LiamTsai"
   },
   "repository": "https://github.com/LiamTsai/Skill",
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }
