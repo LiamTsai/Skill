@@ -240,7 +240,9 @@ export const register: Register = on => {
   // Every request of the main conversation gets a row of its own.
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      const firstLine = e.text.trim().split('\n')[0] ?? ''
+      // Claude Code puts its own context in <system-reminder> blocks ahead of what the person typed.
+      const typed = e.text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+      const firstLine = typed.split('\n')[0] ?? ''
       const title = firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine || '回應中'
       const now = await $.clock.now()
       await update($, tasks, list => upsert(list, `req:${e.turnId}`, { title, status: 'running', startedAt: now }, now))
