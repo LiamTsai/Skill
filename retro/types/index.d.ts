@@ -4,7 +4,7 @@ export type SuggestionStatus = 'open' | 'applied' | 'skipped' | 'failed'
 
 export type Suggestion = {
   id: string
-  /** Label shown in brackets: "CLAUDE.md 規則", "專案 CLAUDE.md", "Skill: <name>" */
+  /** Label shown in brackets: "AGENTS.md 規則", "專案 AGENTS.md", "Skill: <name>" */
   kind: string
   title: string
   why: string

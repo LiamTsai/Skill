@@ -10,7 +10,7 @@
     {
       "name": "retro",
       "source": "./retro",
-      "description": "偵測你在糾正 Claude 時主動詢問復盤，產生 CLAUDE.md / Skill 修改建議，一鍵套用"
+      "description": "偵測你在糾正 Claude 時主動詢問復盤，產生 AGENTS.md / Skill 修改建議，一鍵套用"
     }
   ]
 }

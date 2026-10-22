@@ -5,7 +5,7 @@ Claude Code 的 mod（function-hook plugin）合集，每個資料夾是一個�
 | 資料夾 | 做什麼 |
 | --- | --- |
 | [`progress-bars/`](progress-bars/) | 輸入框上方的進度條：每個需求、每個 session 一列，顯示百分比、已用時間與預估剩餘時間 |
-| [`retro/`](retro/) | 偵測你在糾正 Claude 時主動詢問復盤，產生 CLAUDE.md / Skill 修改建議，一鍵套用 |
+| [`retro/`](retro/) | 偵測你在糾正 Claude 時主動詢問復盤，產生 AGENTS.md / Skill 修改建議，一鍵套用 |
 
 ## progress-bars
 
@@ -28,7 +28,7 @@ Fix upload                                                                      
 
 ## retro
 
-偵測到你在糾正 Claude 時，主動問你要不要「復盤」，把結論變成 CLAUDE.md 或 Skill 的修改建議。
+偵測到你在糾正 Claude 時，主動問你要不要「復盤」，把結論變成 AGENTS.md 或 Skill 的修改建議。
 
 ```
 ● 偵測到糾正 「不是這樣，回報前要先自己測過」
@@ -36,7 +36,7 @@ Fix upload                                                                      
 ```
 
 - 你送出訊息時，背景用 haiku 判斷是不是在糾正 Claude 剛才做的事，不擋送出。
-- 按「要」後用 opus 讀累積的糾正紀錄、最近的對話、全域與專案 `CLAUDE.md`、`~/.claude/skills`，提出最多 3 條建議，每條附理由與你說過的原話當證據。
+- 按「要」後用 opus 讀累積的糾正紀錄、最近的對話、全域與專案 `AGENTS.md`、`~/.claude/skills`，提出最多 3 條建議，每條附理由與你說過的原話當證據。
 - 每條建議可以「預覽改動」（diff）、「套用」或「略過」。只有按「套用」才會寫檔，而且只加在檔尾。
 - `/retro` 可以手動叫出同一個詢問。
 

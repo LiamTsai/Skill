@@ -34,11 +34,11 @@ const REPLY = JSON.stringify({
   ],
 })
 
-test('a correction offers a retrospective whose suggestion is applied to CLAUDE.md', async ($, on) => {
+test('a correction offers a retrospective whose suggestion is applied to AGENTS.md', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   const k = (path: string) => path.replace(/\\/g, '/')
-  const files = new Map<string, string>([['C:/Users/me/.claude/CLAUDE.md', '# rules\n']])
+  const files = new Map<string, string>([['C:/Users/me/.claude/AGENTS.md', '# rules\n']])
 
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
     const { Box } = $.ui.resolve(e)
@@ -74,7 +74,7 @@ test('a correction offers a retrospective whose suggestion is applied to CLAUDE.
 
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const shown = (await pane.findAll({ type: 'Text' })).map(t => t.text).join('\n')
-  expect(shown).toContain('[CLAUDE.md 規則] 回報完成前')
+  expect(shown).toContain('[AGENTS.md 規則] 回報完成前')
   expect(shown).toContain('證據：「不是這樣，回報前要先自己測過」')
 
   await pane.press({ key: 'preview:1' })
@@ -82,7 +82,7 @@ test('a correction offers a retrospective whose suggestion is applied to CLAUDE.
 
   await pane.press({ key: 'apply:1' })
   expect((await pane.findAll({ type: 'Text' })).map(t => t.text)).toContain('✓ 已套用')
-  expect(files.get('C:/Users/me/.claude/CLAUDE.md')).toBe(
+  expect(files.get('C:/Users/me/.claude/AGENTS.md')).toBe(
     '# rules\n\n說「完成」之前，自己在實際環境把成果完整跑一遍，確認能用才回報。\n',
   )
 })

@@ -13,10 +13,10 @@ const STORE_KEY = 'corrections'
 const LABELS = ['the user corrects, rejects or pushes back on what the assistant did or said', 'anything else'] as const
 
 const SYSTEM = `You run a retrospective on how Claude Code (an AI coding agent) works with one person.
-You get the corrections the person made (their own words, the reply they corrected, and the project folder), the recent conversation, the person's global CLAUDE.md, the project's CLAUDE.md, and their skills.
+You get the corrections the person made (their own words, the reply they corrected, and the project folder), the recent conversation, the person's global AGENTS.md, the project's AGENTS.md, and their skills.
 Propose at most 3 changes that would stop the corrected behaviour from happening again. Each change is text appended to the END of exactly one file:
-- "global": the global CLAUDE.md, for working habits that hold across projects (corrections seen in several project folders point here)
-- "project": this project's CLAUDE.md, for something true of this project alone
+- "global": the global AGENTS.md, for working habits that hold across projects (corrections seen in several project folders point here)
+- "project": this project's AGENTS.md, for something true of this project alone
 - "skill:<name>": an existing skill's SKILL.md, when the correction is about what that skill does
 Rules: propose nothing a file already says unless it needs to be stronger; one concrete, checkable rule per change, written as an instruction to the agent; evidence is short verbatim quotes of the person's words; propose nothing when the evidence is thin.
 Write title, why and append in the same language the person writes in.
@@ -48,8 +48,8 @@ function buildPrompt(p: {
         .join('\n') || '(none recorded)'
     }`,
     `## Recent conversation\n${p.recent || '(none)'}`,
-    `## Global CLAUDE.md (${p.globalFile})\n${p.globalText ?? '(missing)'}`,
-    `## Project CLAUDE.md (${p.projectFile})\n${p.projectText ?? '(missing)'}`,
+    `## Global AGENTS.md (${p.globalFile})\n${p.globalText ?? '(missing)'}`,
+    `## Project AGENTS.md (${p.projectFile})\n${p.projectText ?? '(missing)'}`,
     `## Skills\n${p.skills.map(k => `### ${k.name}\n${k.head}`).join('\n') || '(none)'}`,
   ].join('\n\n')
 }
@@ -70,10 +70,10 @@ function toSuggestions(raw: string, globalFile: string, projectFile: string, ski
     let kind: string
     if (target === 'global') {
       file = globalFile
-      kind = 'CLAUDE.md 規則'
+      kind = 'AGENTS.md 規則'
     } else if (target === 'project') {
       file = projectFile
-      kind = '專案 CLAUDE.md'
+      kind = '專案 AGENTS.md'
     } else if (target.startsWith('skill:')) {
       const skill = skills.find(k => k.name === target.slice(6))
       if (skill === undefined) continue
@@ -104,7 +104,7 @@ function asDiff(append: string): string {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'retro', description: '針對最近的糾正做復盤，提出 CLAUDE.md / Skill 修改建議' })
+    await $.command.register({ name: 'retro', description: '針對最近的糾正做復盤，提出 AGENTS.md / Skill 修改建議' })
     return next(e)
   })
 
@@ -157,8 +157,8 @@ export const register: Register = on => {
           void $.ui.open({ id: PANE, title: '復盤' })
           const home = slash((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '~')
           const cwd = slash(await $.session.cwd())
-          const globalFile = `${home}/.claude/CLAUDE.md`
-          const projectFile = `${cwd}/CLAUDE.md`
+          const globalFile = `${home}/.claude/AGENTS.md`
+          const projectFile = `${cwd}/AGENTS.md`
           const skillsDir = `${home}/.claude/skills`
           const readIf = async (path: string, max: number) =>
             (await $.fs.exists(path).catch(() => false)) ? clip(String(await $.fs.read(path)), max) : null
@@ -269,7 +269,7 @@ export const register: Register = on => {
     const ph = await read($, phase)
     const list = await read($, suggestions)
 
-    if (ph === 'thinking') return <Text dimColor>正在讀取糾正紀錄、CLAUDE.md 與 Skills，產生建議中…</Text>
+    if (ph === 'thinking') return <Text dimColor>正在讀取糾正紀錄、AGENTS.md 與 Skills，產生建議中…</Text>
     if (ph === 'error') return <Text color="error">復盤失敗：{await read($, error)}</Text>
     if (list.length === 0) return <Text dimColor>這次沒有足夠證據提出修改建議。</Text>
 
