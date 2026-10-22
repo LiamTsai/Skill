@@ -14,6 +14,7 @@ const LABELS = ['the user corrects, rejects or pushes back on what the assistant
 
 const SYSTEM = `You run a retrospective on how Claude Code (an AI coding agent) works with one person.
 You get the corrections the person made (their own words, the reply they corrected, and the project folder), the recent conversation, the person's global AGENTS.md, the project's AGENTS.md, and their skills.
+You also get the global and project CLAUDE.md as reference only: never target them, and treat their rules like rules already written.
 Propose at most 3 changes that would stop the corrected behaviour from happening again. Each change is text appended to the END of exactly one file:
 - "global": the global AGENTS.md, for working habits that hold across projects (corrections seen in several project folders point here)
 - "project": this project's AGENTS.md, for something true of this project alone
@@ -39,6 +40,10 @@ function buildPrompt(p: {
   globalText: string | null
   projectFile: string
   projectText: string | null
+  globalRefFile: string
+  globalRefText: string | null
+  projectRefFile: string
+  projectRefText: string | null
   skills: Skill[]
 }): string {
   return [
@@ -50,6 +55,8 @@ function buildPrompt(p: {
     `## Recent conversation\n${p.recent || '(none)'}`,
     `## Global AGENTS.md (${p.globalFile})\n${p.globalText ?? '(missing)'}`,
     `## Project AGENTS.md (${p.projectFile})\n${p.projectText ?? '(missing)'}`,
+    `## Global CLAUDE.md, reference only (${p.globalRefFile})\n${p.globalRefText ?? '(missing)'}`,
+    `## Project CLAUDE.md, reference only (${p.projectRefFile})\n${p.projectRefText ?? '(missing)'}`,
     `## Skills\n${p.skills.map(k => `### ${k.name}\n${k.head}`).join('\n') || '(none)'}`,
   ].join('\n\n')
 }
@@ -187,6 +194,10 @@ export const register: Register = on => {
             globalText: await readIf(globalFile, 12_000),
             projectFile,
             projectText: await readIf(projectFile, 12_000),
+            globalRefFile: `${home}/.claude/CLAUDE.md`,
+            globalRefText: await readIf(`${home}/.claude/CLAUDE.md`, 12_000),
+            projectRefFile: `${cwd}/CLAUDE.md`,
+            projectRefText: await readIf(`${cwd}/CLAUDE.md`, 12_000),
             skills,
           })
 

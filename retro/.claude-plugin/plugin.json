@@ -1,6 +1,6 @@
 {
   "name": "retro",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Notices when you correct Claude, offers a retrospective, and proposes AGENTS.md or skill changes you apply with one press",
   "author": {
     "name": "LiamTsai"

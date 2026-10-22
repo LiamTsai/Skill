@@ -16,6 +16,7 @@
    - 累積的糾正紀錄（跨 session、跨專案，記錄在哪個專案發生）
    - 最近的對話
    - 全域 `~/.claude/AGENTS.md` 與專案 `AGENTS.md`
+   - 全域與專案 `CLAUDE.md`（只當參考，避免提出已經寫過的規則，不會寫入）
    - `~/.claude/skills` 裡的 Skill
 
    提出最多 3 條建議，顯示在「復盤」面板。

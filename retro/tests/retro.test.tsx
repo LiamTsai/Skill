@@ -38,7 +38,12 @@ test('a correction offers a retrospective whose suggestion is applied to AGENTS.
   const clock = mock.clock(on)
   mock.store(on)
   const k = (path: string) => path.replace(/\\/g, '/')
-  const files = new Map<string, string>([['C:/Users/me/.claude/AGENTS.md', '# rules\n']])
+  const files = new Map<string, string>([
+    ['C:/Users/me/.claude/AGENTS.md', '# rules\n'],
+    ['C:/Users/me/.claude/CLAUDE.md', '# claude rules\n'],
+    ['C:/work/app/CLAUDE.md', '# app claude rules\n'],
+  ])
+  let prompt = ''
 
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
     const { Box } = $.ui.resolve(e)
@@ -56,7 +61,10 @@ test('a correction offers a retrospective whose suggestion is applied to AGENTS.
     return { value: undefined } as never
   })
   on('model.classify', ($, e) => ({ value: e.labels[0] }) as never)
-  on('model.complete', () => ({ value: { isAnswered: true, text: REPLY, usage: USAGE } }) as never)
+  on('model.complete', ($, e) => {
+    prompt = e.prompt
+    return { value: { isAnswered: true, text: REPLY, usage: USAGE } } as never
+  })
   on('prompt.submit', ($, e) => ({ text: e.text }))
 
   await $.prompt.submit({ text: '不是這樣，回報前要先自己測過' })
@@ -85,4 +93,7 @@ test('a correction offers a retrospective whose suggestion is applied to AGENTS.
   expect(files.get('C:/Users/me/.claude/AGENTS.md')).toBe(
     '# rules\n\n說「完成」之前，自己在實際環境把成果完整跑一遍，確認能用才回報。\n',
   )
+  expect(prompt).toContain('# claude rules')
+  expect(prompt).toContain('# app claude rules')
+  expect(files.get('C:/Users/me/.claude/CLAUDE.md')).toBe('# claude rules\n')
 })
