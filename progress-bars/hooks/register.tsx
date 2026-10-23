@@ -182,7 +182,8 @@ export const register: Register = on => {
       } catch (err) {
         const status = `error: ${err instanceof Error ? err.message : String(err)}`
         await update($, sync, () => status)
-        await $.store.set('sync:last-error', status)
+        // A broken store file fails this write too; the band shows the status anyway.
+        await $.store.set('sync:last-error', status).catch(() => undefined)
       } finally {
         isSyncing = false
       }
@@ -314,6 +315,7 @@ export const register: Register = on => {
     const mine = await read($, tasks)
     const rest = await read($, others)
     const closedAt = await read($, hidden)
+    const syncStatus = await read($, sync)
     await read($, tick)
     const below = await next(e)
     if (e.props.hasSurvey) return below
@@ -338,7 +340,9 @@ export const register: Register = on => {
       if (visible.length === 0 && !g.isRunning) continue
       shown.push({ group: g, tasks: visible })
     }
-    if (shown.length === 0) return below
+    // Until the next sync succeeds, other sessions' rows are stale or missing: say so.
+    const syncFailed = syncStatus !== '' && !syncStatus.startsWith('ok ')
+    if (shown.length === 0 && !syncFailed) return below
 
     const now = await $.clock.now()
     const { Box, Text, Button } = $.ui.resolve(e)
@@ -370,6 +374,13 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {below}
+        {syncFailed ? (
+          <Box key="sync-failed" flexDirection="row">
+            <Text color="warning" wrap="truncate-end">
+              {`⚠ 同步失敗，其他 session 的進度可能沒更新：${syncStatus}`}
+            </Text>
+          </Box>
+        ) : null}
         {shown.map(({ group: g, tasks: list }) => (
           <Box key={`group:${g.id}`} flexDirection="column">
             <Box flexDirection="row" gap={1}>

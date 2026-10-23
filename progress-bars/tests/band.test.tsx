@@ -204,3 +204,33 @@ test('every request gets a row that "current" updates and the turn closes', asyn
   expect(texts).toContain('5m')
   await ui.unmount()
 })
+
+test('a failed sync shows a warning row until a sync succeeds again', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
+  let listed = 'not json'
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
+  on('store.get', () => ({ value: undefined }) as never)
+  on('store.set', () => ({ value: undefined }) as never)
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({
+    result: '',
+    text: JSON.stringify({ sessionId: 'local_me', title: '進度條 mod' }),
+  }))
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: '', text: listed }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__progress-bars__${e.name}` } }) as never)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  await clock.advance(1_500)
+  let texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.join(' ')).toContain('同步失敗')
+
+  listed = '[]'
+  await clock.advance(10_000)
+  texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.join(' ')).not.toContain('同步失敗')
+  await ui.unmount()
+})
