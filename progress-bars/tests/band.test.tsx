@@ -96,6 +96,8 @@ test('other sessions draw with their reported progress, and only started ones sw
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
     result: '',
     text: JSON.stringify([
+      // The app lists this session too; it draws once, from its own tasks.
+      { sessionId: 'local_me', title: '進度條 mod', isRunning: true, lastActivityAt: '2026-10-20T10:00:00Z' },
       { sessionId: 'local_a', title: 'Motion graphics showreel', isRunning: true, lastActivityAt: '2026-10-20T09:59:30Z', startedBy: 'local_me' },
       { sessionId: 'local_b', title: 'Fix upload', isRunning: true, lastActivityAt: '2026-10-20T09:59:00Z' },
       { sessionId: 'local_c', title: 'Old finished', isRunning: false, lastActivityAt: '2026-09-01T00:30:00Z' },
@@ -114,6 +116,7 @@ test('other sessions draw with their reported progress, and only started ones sw
   await clock.advance(1_500)
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts).toContain('Motion graphics showreel')
+  expect(texts.filter(t => t === '進度條 mod')).toHaveLength(1)
   expect(texts).toContain('Fix upload')
   expect(texts).toContain('localStorage 上傳')
   expect(texts).toContain('51%')
@@ -232,5 +235,49 @@ test('a failed sync shows a warning row until a sync succeeds again', async ($, 
   await clock.advance(10_000)
   texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts.join(' ')).not.toContain('同步失敗')
+  await ui.unmount()
+})
+
+test('this session draws once though the app lists it, and its rows keep updating', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-24T00:00:19Z') })
+  const store = new Map<string, unknown>()
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
+  on('store.get', ($, e) => ({ value: store.get(e.key) }) as never)
+  on('store.set', ($, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined } as never
+  })
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({
+    result: '',
+    text: JSON.stringify({ sessionId: 'local_me', title: 'UO訂單領取條件' }),
+  }))
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
+    result: '',
+    text: JSON.stringify([{ sessionId: 'local_me', title: 'UO訂單領取條件', isRunning: true, lastActivityAt: '2026-10-24T00:00:20Z' }]),
+  }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__progress-bars__${e.name}` } }) as never)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'UO訂單的領取條件?', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const texts = async () => (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  await clock.advance(1_500)
+  expect((await texts()).filter(t => t === 'UO訂單領取條件')).toHaveLength(1)
+
+  await $.tool.call({ tool: 'mcp__progress-bars__report_progress', id: 'current', title: '查 BOD 領取條件', percent: 5 })
+  await clock.advance(30_000)
+  expect(await texts()).toContain('5%')
+  expect(await texts()).toContain('30s')
+
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  const after = await texts()
+  expect(after).toContain('✓')
+  expect(after).not.toContain('●')
+  expect(after.filter(t => t === '查 BOD 領取條件')).toHaveLength(1)
   await ui.unmount()
 })

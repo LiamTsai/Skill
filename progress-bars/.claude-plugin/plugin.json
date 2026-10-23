@@ -1,6 +1,6 @@
 {
   "name": "progress-bars",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A band above the prompt with a progress bar, percent and time left for each running task, subagent or side session",
   "author": {
     "name": "LiamTsai"

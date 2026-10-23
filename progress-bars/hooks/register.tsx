@@ -158,7 +158,8 @@ export const register: Register = on => {
         const rows: SessionRow[] = []
         for (const raw of sessions as Array<Record<string, unknown>>) {
           const id = String(raw.sessionId ?? '')
-          if (id === '' || raw.isArchived === true) continue
+          // The app lists this session too; it draws once, from its own tasks.
+          if (id === '' || id === me.id || raw.isArchived === true) continue
           const entry = (await $.store.get(`s:${id}`)) as SessionEntry | undefined
           const isRunning = raw.isRunning === true
           if (!isRunning && (entry?.tasks.length ?? 0) === 0) continue
