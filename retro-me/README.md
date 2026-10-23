@@ -1,4 +1,4 @@
-# retro
+# RetroMe
 
 偵測到你在糾正 Claude 時，主動問你要不要「復盤」，並把結論變成 AGENTS.md 或 Skill 的修改建議，你按「套用」才會改檔案。
 

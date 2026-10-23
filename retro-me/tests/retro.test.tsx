@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
-  plugin: 'retro',
+  plugin: 'retro-me',
   component: 'AbovePrompt',
   props: {
     hasSurvey: false,
@@ -14,7 +14,7 @@ const BAND = {
 } as const
 
 const PANE = {
-  plugin: 'retro',
+  plugin: 'retro-me',
   component: 'Pane',
   requestId: 'retro',
   props: { title: '復盤' },

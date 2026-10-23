@@ -21,7 +21,7 @@ export type RetroPhase = 'idle' | 'thinking' | 'ready' | 'error'
 
 declare module 'claude-code' {
   interface PluginState {
-    retro: {
+    'retro-me': {
       pending: Correction | null
       phase: RetroPhase
       error: string

@@ -5,7 +5,7 @@ Claude Code 的 mod（function-hook plugin）合集，每個資料夾是一個�
 | 資料夾 | 做什麼 |
 | --- | --- |
 | [`progress-bars/`](progress-bars/) | 輸入框上方的進度條：每個需求、每個 session 一列，顯示百分比、已用時間與預估剩餘時間 |
-| [`retro/`](retro/) | 偵測你在糾正 Claude 時主動詢問復盤，產生 AGENTS.md / Skill 修改建議，一鍵套用 |
+| [`retro-me/`](retro-me/) | 偵測你在糾正 Claude 時主動詢問復盤，產生 AGENTS.md / Skill 修改建議，一鍵套用 |
 
 ## progress-bars
 
@@ -26,7 +26,7 @@ Fix upload                                                                      
 
 完整說明見 [progress-bars/README.md](progress-bars/README.md)。
 
-## retro
+## RetroMe
 
 偵測到你在糾正 Claude 時，主動問你要不要「復盤」，把結論變成 AGENTS.md 或 Skill 的修改建議。
 
@@ -40,7 +40,7 @@ Fix upload                                                                      
 - 每條建議可以「預覽改動」（diff）、「套用」或「略過」。只有按「套用」才會寫檔，而且只加在檔尾。
 - `/retro` 可以手動叫出同一個詢問。
 
-完整說明見 [retro/README.md](retro/README.md)。
+完整說明見 [retro-me/README.md](retro-me/README.md)。
 
 ## 安裝
 
@@ -48,7 +48,7 @@ Fix upload                                                                      
 
 ```
 /plugin install progress-bars --marketplace LiamTsai/Skill
-/plugin install retro --marketplace LiamTsai/Skill
+/plugin install retro-me --marketplace LiamTsai/Skill
 ```
 
 第一次會問 `Add marketplace?`，按 `y`，再選安裝範圍（建議 user，所有專案都生效）。
@@ -57,7 +57,7 @@ Fix upload                                                                      
 
 ```
 claude plugin install progress-bars --marketplace LiamTsai/Skill
-claude plugin install retro --marketplace LiamTsai/Skill
+claude plugin install retro-me --marketplace LiamTsai/Skill
 ```
 
 在 Claude Code Desktop（`/plugin` 在那裡不能用）：點輸入框旁的 **+** → **Plugins** → **Add marketplace**，輸入 `LiamTsai/Skill`，再 **Add plugin**。
@@ -71,7 +71,7 @@ claude plugin update progress-bars@liamtsai-skill
 claude plugin uninstall progress-bars@liamtsai-skill
 ```
 
-`retro` 同理。
+`retro-me` 同理。
 
 ## 需求
 
@@ -85,7 +85,7 @@ claude plugin validate ./progress-bars
 claude plugin test ./progress-bars
 ```
 
-`retro` 同理。
+`retro-me` 同理。
 
 ## 授權
 

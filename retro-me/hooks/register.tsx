@@ -3,10 +3,10 @@ import type { Register } from 'claude-code'
 
 import type { Correction, Suggestion } from '../types'
 
-const pending = atom({ plugin: 'retro', key: 'pending' } as const, null)
-const phase = atom({ plugin: 'retro', key: 'phase' } as const, 'idle')
-const error = atom({ plugin: 'retro', key: 'error' } as const, '')
-const suggestions = atom({ plugin: 'retro', key: 'suggestions' } as const, [])
+const pending = atom({ plugin: 'retro-me', key: 'pending' } as const, null)
+const phase = atom({ plugin: 'retro-me', key: 'phase' } as const, 'idle')
+const error = atom({ plugin: 'retro-me', key: 'error' } as const, '')
+const suggestions = atom({ plugin: 'retro-me', key: 'suggestions' } as const, [])
 
 const PANE = 'retro'
 const STORE_KEY = 'corrections'
@@ -151,7 +151,7 @@ export const register: Register = on => {
   })
 
   // The 要 button starts the retrospective, in the background.
-  on('ui.press', { plugin: 'retro', element: 'retro:yes' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'retro-me', element: 'retro:yes' }, async ($, e, next) => {
     const result = await next(e)
     if (isRunning) return result
     isRunning = true
