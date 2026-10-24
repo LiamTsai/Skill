@@ -76,6 +76,22 @@ function parseJson(text: unknown): unknown {
   }
 }
 
+/**
+ * A task row's element key: the desktop surface holds keys as at most 64 of
+ * letters, digits, `_`, `-` and `:`, so a key built from a task id (a free-text
+ * subagent description, a uuid) is hashed to stay short and unique.
+ */
+export function rowKey(kind: string, sessionId: string, taskId: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  for (let i = 0; i < taskId.length; i++) {
+    const c = taskId.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193)
+    b = Math.imul(b ^ c, 0x5bd1e995)
+  }
+  return `${kind}:${sessionId}-${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`
+}
+
 /** One session as every band draws it: a header row, then its tasks. */
 type Group = { id: string; title: string; isRunning: boolean; tasks: Task[]; canFocus: boolean; isSelf: boolean }
 
@@ -400,7 +416,7 @@ export const register: Register = on => {
               const icon = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : '●'
               const filled = t.percent === null ? 0 : Math.round((barW * t.percent) / 100)
               return (
-                <Box key={`row:${g.id}/${t.id}`} flexDirection="row" gap={1} marginLeft={indent}>
+                <Box key={rowKey('row', g.id, t.id)} flexDirection="row" gap={1} marginLeft={indent}>
                   <Box width={2}>
                     <Text color={color}>{icon}</Text>
                   </Box>
@@ -427,7 +443,7 @@ export const register: Register = on => {
                       {timeText(t, now)}
                     </Text>
                   </Box>
-                  <Button key={`close:${g.id}/${t.id}`} plain label="×" onPress={() => close(`${g.id}/${t.id}`)} />
+                  <Button key={rowKey('close', g.id, t.id)} plain label="×" onPress={() => close(`${g.id}/${t.id}`)} />
                 </Box>
               )
             })}

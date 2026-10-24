@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { rowKey } from '../hooks/register'
 
 const BAND = {
   plugin: 'progress-bars',
@@ -45,7 +46,7 @@ test('reported tasks draw as rows that the × removes, on every surface', async 
   await clock.advance(10 * 60_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('10m / ~20m')
-  await ui.press({ key: 'close:self/reel' })
+  await ui.press({ key: rowKey('close', 'self', 'reel') })
   const after = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(after).not.toContain('Motion graphics showreel')
   expect(after).toContain('任務進度追蹤面板')
@@ -279,5 +280,47 @@ test('this session draws once though the app lists it, and its rows keep updatin
   expect(after).toContain('✓')
   expect(after).not.toContain('●')
   expect(after.filter(t => t === '查 BOD 領取條件')).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('every key the band draws is short, plain and unique, whatever the task ids', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-24T04:47:30Z') })
+  const started = Date.parse('2026-10-24T04:00:00Z')
+  const task = (id: string) => ({ id, title: id, percent: 100, etaMinutes: null, status: 'done', startedAt: started, updatedAt: started })
+  const store = new Map<string, unknown>([
+    [
+      's:local_ed66f1f4-615f-4337-ba17-68cdc9269e7c',
+      {
+        id: 'local_ed66f1f4-615f-4337-ba17-68cdc9269e7c',
+        title: 'UO訂單領取條件',
+        updatedAt: started,
+        tasks: [task('agent:Implement BOD ticket 03'), task('agent:Implement BOD ticket 04'), task('agent:實作切片 01 子／彈'), task('req:5f6225ec-b891-421a-90d7-a92d80620c39')],
+      },
+    ],
+  ])
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
+  on('store.get', ($, e) => ({ value: store.get(e.key) }) as never)
+  on('store.set', () => ({ value: undefined }) as never)
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({
+    result: '',
+    text: JSON.stringify({ sessionId: 'local_a019cb30-5aca-416c-9eb7-bab41540fc12', title: '待辦事項清單' }),
+  }))
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
+    result: '',
+    text: JSON.stringify([{ sessionId: 'local_ed66f1f4-615f-4337-ba17-68cdc9269e7c', title: 'UO訂單領取條件', isRunning: false, lastActivityAt: '2026-10-24T04:00:00Z' }]),
+  }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__progress-bars__${e.name}` } }) as never)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await clock.advance(1_500)
+  const nodes = [...(await ui.findAll({ type: 'Button' })), ...(await ui.findAll({ type: 'Box' }))]
+  const keys = nodes.map(n => n.key).filter((k): k is string => typeof k === 'string')
+  expect(keys.filter(k => k.startsWith('close:'))).toHaveLength(6)
+  for (const k of keys) expect(k).toMatch(/^[A-Za-z0-9_:-]{1,64}$/)
+  expect(new Set(keys).size).toBe(keys.length)
   await ui.unmount()
 })
