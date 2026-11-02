@@ -42,6 +42,8 @@ declare module 'claude-code' {
       /** Other sessions closed with ×, by id: when (shared through the store) */
       hidden: Record<string, number>
       sync: string
+      /** Other sessions whose task rows this band shows, by id; the rest draw as one summary row */
+      expanded: Record<string, boolean>
     }
   }
 }

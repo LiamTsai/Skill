@@ -124,6 +124,13 @@ test('other sessions draw with their reported progress, and a click switches to 
   await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await clock.advance(1_500)
+  // Other sessions fold to one summary line until ▸ opens them.
+  const folded = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(folded).toContain('  ● 1 執行中 51%')
+  expect(folded).toContain('  ✓ 1')
+  expect(folded).not.toContain('localStorage 上傳')
+  await ui.press({ key: 'fold:local_b' })
+  await ui.press({ key: 'fold:local_c' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts).toContain('Motion graphics showreel')
   expect(texts.filter(t => t === '進度條 mod')).toHaveLength(1)
@@ -287,6 +294,7 @@ test('a store read caught mid-write keeps the rows last read', async ($, on) => 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
 
   await clock.advance(1_500)
+  await ui.press({ key: 'fold:local_b' })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('localStorage 上傳')
   isBroken = true
   await clock.advance(10_000)
@@ -431,9 +439,11 @@ test('every key the band draws is short, plain and unique, whatever the task ids
   await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await clock.advance(1_500)
+  await ui.press({ key: 'fold:local_ed66f1f4-615f-4337-ba17-68cdc9269e7c' })
   const nodes = [...(await ui.findAll({ type: 'Button' })), ...(await ui.findAll({ type: 'Box' }))]
   const keys = nodes.map(n => n.key).filter((k): k is string => typeof k === 'string')
   expect(keys.filter(k => k.startsWith('close:'))).toHaveLength(6)
+  expect(keys).toContain('fold:local_ed66f1f4-615f-4337-ba17-68cdc9269e7c')
   for (const k of keys) expect(k).toMatch(/^[A-Za-z0-9_:-]{1,64}$/)
   expect(new Set(keys).size).toBe(keys.length)
   await ui.unmount()

@@ -9,6 +9,7 @@ const self = atom({ plugin: 'progress-bars', key: 'self' } as const, null)
 const others = atom({ plugin: 'progress-bars', key: 'others' } as const, [])
 const hidden = atom({ plugin: 'progress-bars', key: 'hidden' } as const, {})
 const sync = atom({ plugin: 'progress-bars', key: 'sync' } as const, '')
+const expanded = atom({ plugin: 'progress-bars', key: 'expanded' } as const, {})
 
 const TOOL = 'report_progress'
 const TOOL_ID = `mcp__progress-bars__${TOOL}`
@@ -104,6 +105,19 @@ export function rowKey(kind: string, sessionId: string, taskId: string): string 
 type Group = { id: string; title: string; isRunning: boolean; tasks: Task[]; canFocus: boolean; isSelf: boolean }
 
 const newest = (list: Task[]) => Math.max(0, ...list.map(t => t.updatedAt))
+
+/** A folded session's one line: "● 1 執行中 40% · ✓ 25 · ✗ 1". */
+function summary(list: Task[]): string {
+  const running = list.filter(t => t.status === 'running')
+  const done = list.filter(t => t.status === 'done').length
+  const failed = list.filter(t => t.status === 'failed').length
+  const latest = running.sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const parts: string[] = []
+  if (running.length > 0) parts.push(`● ${running.length} 執行中${latest?.percent != null ? ` ${latest.percent}%` : ''}`)
+  if (done > 0) parts.push(`✓ ${done}`)
+  if (failed > 0) parts.push(`✗ ${failed}`)
+  return parts.join(' · ')
+}
 
 /** The same order in every session: by when each session's first task started. */
 const groupOrder = (g: Group) => (g.tasks.length > 0 ? Math.min(...g.tasks.map(t => t.startedAt)) : Number.MAX_SAFE_INTEGER)
@@ -410,6 +424,7 @@ export const register: Register = on => {
     const rest = await read($, others)
     const closedAt = await read($, hidden)
     const syncStatus = await read($, sync)
+    const open = await read($, expanded)
     await read($, tick)
     const below = await next(e)
     if (e.props.hasSurvey) return below
@@ -453,6 +468,8 @@ export const register: Register = on => {
       await $.store.set(HIDDEN_KEY, { ...stored, ...closed }).catch(() => undefined)
     }
 
+    const toggle = (id: string) => update($, expanded, m => ({ ...m, [id]: m[id] !== true }))
+
     const focus = async (g: Group) => {
       if (g.isSelf) return
       if (g.canFocus) {
@@ -488,57 +505,65 @@ export const register: Register = on => {
             </Text>
           </Box>
         ) : null}
-        {shown.map(({ group: g, tasks: list }) => (
-          <Box key={`group:${g.id}`} flexDirection="column">
-            <Box flexDirection="row" gap={1}>
-              <Box flexGrow={1}>
-                <Button key={`open:${g.id}`} plain onPress={() => focus(g)}>
-                  <Text weight="semibold" wrap="truncate-end">
-                    {g.title}
-                  </Text>
-                  {list.length === 0 ? <Text dimColor>  執行中</Text> : ''}
-                </Button>
-              </Box>
-              <Button key={`close:${g.id}`} plain label="×" onPress={() => close(g.id)} />
-            </Box>
-            {list.map(t => {
-              const color = t.status === 'done' ? 'success' : t.status === 'failed' ? 'error' : 'claude'
-              const icon = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : '●'
-              const filled = t.percent === null ? 0 : Math.round((barW * t.percent) / 100)
-              return (
-                <Box key={rowKey('row', g.id, t.id)} flexDirection="row" gap={1} marginLeft={indent}>
-                  <Box width={2}>
-                    <Text color={color}>{icon}</Text>
-                  </Box>
-                  <Box width={titleW}>
-                    <Text wrap="truncate-end" dimColor={t.status === 'done'}>
-                      {t.title}
+        {shown.map(({ group: g, tasks: list }) => {
+          // Other sessions fold to one line: every row of every session is more
+          // than the desktop band will draw. This session always shows its rows.
+          const isOpen = g.isSelf || open[g.id] === true
+          return (
+            <Box key={`group:${g.id}`} flexDirection="column">
+              <Box flexDirection="row" gap={1}>
+                {g.isSelf || list.length === 0 ? null : (
+                  <Button key={`fold:${g.id}`} plain label={isOpen ? '▾' : '▸'} onPress={() => toggle(g.id)} />
+                )}
+                <Box flexGrow={1}>
+                  <Button key={`open:${g.id}`} plain onPress={() => focus(g)}>
+                    <Text weight="semibold" wrap="truncate-end">
+                      {g.title}
                     </Text>
-                  </Box>
-                  <Box width={barW}>
-                    <Text mono>
-                      <Text color={color} dimColor={t.status === 'done'}>
-                        {'━'.repeat(filled)}
-                      </Text>
-                      <Text color="subtle">{'━'.repeat(barW - filled)}</Text>
-                    </Text>
-                  </Box>
-                  <Box width={4} justifyContent="flex-end">
-                    <Text tabular weight="semibold">
-                      {t.percent === null ? '…' : `${t.percent}%`}
-                    </Text>
-                  </Box>
-                  <Box width={12}>
-                    <Text dimColor tabular>
-                      {timeText(t, now)}
-                    </Text>
-                  </Box>
-                  <Button key={rowKey('close', g.id, t.id)} plain label="×" onPress={() => close(`${g.id}/${t.id}`)} />
+                    {list.length === 0 ? <Text dimColor>  執行中</Text> : isOpen ? '' : <Text dimColor>{`  ${summary(list)}`}</Text>}
+                  </Button>
                 </Box>
-              )
-            })}
-          </Box>
-        ))}
+                <Button key={`close:${g.id}`} plain label="×" onPress={() => close(g.id)} />
+              </Box>
+              {(isOpen ? list : []).map(t => {
+                const color = t.status === 'done' ? 'success' : t.status === 'failed' ? 'error' : 'claude'
+                const icon = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : '●'
+                const filled = t.percent === null ? 0 : Math.round((barW * t.percent) / 100)
+                return (
+                  <Box key={rowKey('row', g.id, t.id)} flexDirection="row" gap={1} marginLeft={indent}>
+                    <Box width={2}>
+                      <Text color={color}>{icon}</Text>
+                    </Box>
+                    <Box width={titleW}>
+                      <Text wrap="truncate-end" dimColor={t.status === 'done'}>
+                        {t.title}
+                      </Text>
+                    </Box>
+                    <Box width={barW}>
+                      <Text mono>
+                        <Text color={color} dimColor={t.status === 'done'}>
+                          {'━'.repeat(filled)}
+                        </Text>
+                        <Text color="subtle">{'━'.repeat(barW - filled)}</Text>
+                      </Text>
+                    </Box>
+                    <Box width={4} justifyContent="flex-end">
+                      <Text tabular weight="semibold">
+                        {t.percent === null ? '…' : `${t.percent}%`}
+                      </Text>
+                    </Box>
+                    <Box width={12}>
+                      <Text dimColor tabular>
+                        {timeText(t, now)}
+                      </Text>
+                    </Box>
+                    <Button key={rowKey('close', g.id, t.id)} plain label="×" onPress={() => close(`${g.id}/${t.id}`)} />
+                  </Box>
+                )
+              })}
+            </Box>
+          )
+        })}
       </Box>
     )
   })
