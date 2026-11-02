@@ -17,6 +17,11 @@ const GET_SESSION = 'mcp__ccd_session_mgmt__get_session'
 const OPEN_SESSION = 'mcp__ccd_window__open_session_in'
 
 const SYNC_MS = 10_000
+/**
+ * Every session reads and writes one store file, so a read now and then meets
+ * it half written; the band warns only once this many syncs in a row failed.
+ */
+const FAILS_TO_WARN = 3
 /** Store key of the sessions closed with ×, shared by every session: id → when */
 const HIDDEN_KEY = 'hidden'
 
@@ -126,6 +131,7 @@ export const register: Register = on => {
     let publishedAt = 0
     let isSyncing = false
     let syncs = 0
+    let failures = 0
     const syncOnce = async () => {
       if (isSyncing) return
       isSyncing = true
@@ -167,16 +173,22 @@ export const register: Register = on => {
         const listed = await $.tool.call({ tool: LIST_SESSIONS, limit: 40 } as never)
         const sessions = parseJson(listed.text)
         if (!Array.isArray(sessions)) {
-          await update($, sync, () => `list_sessions: ${String(listed.text ?? listed.deny ?? '').slice(0, 200)}`)
-          return
+          throw new Error(`list_sessions: ${String(listed.text ?? listed.deny ?? '').slice(0, 200)}`)
         }
 
+        // A session whose entry could not be read keeps the tasks last read.
+        const before = await read($, others)
+        let readError: unknown
         const rows: SessionRow[] = []
         for (const raw of sessions as Array<Record<string, unknown>>) {
           const id = String(raw.sessionId ?? '')
           // The app lists this session too; it draws once, from its own tasks.
           if (id === '' || id === me.id || raw.isArchived === true) continue
-          const entry = (await $.store.get(`s:${id}`)) as SessionEntry | undefined
+          const entry = (await $.store.get(`s:${id}`).catch((err: unknown) => {
+            readError = err
+            const last = before.find(s => s.id === id)
+            return last === undefined ? undefined : { tasks: last.tasks, title: last.title }
+          })) as Pick<SessionEntry, 'tasks' | 'title'> | undefined
           const isRunning = raw.isRunning === true
           if (!isRunning && (entry?.tasks.length ?? 0) === 0) continue
           rows.push({
@@ -192,13 +204,15 @@ export const register: Register = on => {
         const shown = rows
         const closed = ((await $.store.get(HIDDEN_KEY)) ?? {}) as Record<string, number>
         if (JSON.stringify(closed) !== JSON.stringify(await read($, hidden))) await update($, hidden, () => closed)
-        if (JSON.stringify(shown) !== JSON.stringify(await read($, others))) await update($, others, () => shown)
-        const status = `ok ${new Date(now).toISOString()} · ${sessions.length} listed · ${shown.length} shown`
-        await update($, sync, () => status)
-        await $.store.set(`sync:${me.id}`, status)
+        if (JSON.stringify(shown) !== JSON.stringify(before)) await update($, others, () => shown)
+        if (readError !== undefined) throw readError
+        failures = 0
+        // Kept in the session alone: writing it to the shared file every sync
+        // only made the other sessions' reads collide more.
+        await update($, sync, () => `ok ${new Date(now).toISOString()} · ${sessions.length} listed · ${shown.length} shown`)
       } catch (err) {
         const status = `error: ${err instanceof Error ? err.message : String(err)}`
-        await update($, sync, () => status)
+        if (++failures >= FAILS_TO_WARN) await update($, sync, () => status)
         // A broken store file fails this write too; the band shows the status anyway.
         await $.store.set('sync:last-error', status).catch(() => undefined)
       } finally {
@@ -378,14 +392,27 @@ export const register: Register = on => {
 
     const focus = async (g: Group) => {
       if (g.isSelf) return
-      if (!g.canFocus) {
-        $.ui.toast(`App 只允許切換到這個 session 開出的 session，請從側邊欄點開「${g.title}」`)
-        return
+      if (g.canFocus) {
+        const r = await $.tool.call({ tool: OPEN_SESSION, session_id: g.id, target: 'focus' } as never).catch(
+          (err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }),
+        )
+        if (r.deny === undefined && r.isError !== true) return
       }
-      const r = await $.tool.call({ tool: OPEN_SESSION, session_id: g.id, target: 'focus' } as never).catch(
-        (err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }),
-      )
-      if (r.deny !== undefined || r.isError === true) $.ui.toast(`無法切換到「${g.title}」：${r.deny ?? r.text ?? ''}`)
+      // The app switches only to sessions this one started; any other opens
+      // through its claude:// link, as a click on it outside the app would.
+      const got = await $.tool.call({ tool: GET_SESSION, session_id: g.id } as never).catch(() => undefined)
+      const link = (parseJson(got?.text) as { link?: string } | null)?.link
+      if (link !== undefined && link.startsWith('claude://') && (await openLink(link))) return
+      $.ui.toast(`無法切換到「${g.title}」，請從側邊欄點開`)
+    }
+
+    /** Hands a link to the OS, by whichever opener this platform has. */
+    const openLink = async (link: string) => {
+      for (const argv of [['rundll32', 'url.dll,FileProtocolHandler', link], ['open', link], ['xdg-open', link]]) {
+        const r = await $.process.run(argv, { timeoutMs: 10_000 }).catch(() => undefined)
+        if (r !== undefined) return r.exitCode === 0
+      }
+      return false
     }
 
     return (

@@ -53,10 +53,11 @@ test('reported tasks draw as rows that the × removes, on every surface', async 
   await ui.unmount()
 })
 
-test('other sessions draw with their reported progress, and only started ones switch', async ($, on) => {
+test('other sessions draw with their reported progress, and a click switches to any of them', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   const toasts: string[] = []
   const focused: string[] = []
+  const opened: string[][] = []
   const store = new Map<string, unknown>([
     [
       's:local_b',
@@ -90,10 +91,18 @@ test('other sessions draw with their reported progress, and only started ones sw
     toasts.push(String(e.text))
     return { value: undefined } as never
   })
-  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, ($, e) => ({
     result: '',
-    text: JSON.stringify({ sessionId: 'local_me', title: '進度條 mod' }),
+    text: JSON.stringify(
+      e.session_id === 'self'
+        ? { sessionId: 'local_me', title: '進度條 mod' }
+        : { sessionId: e.session_id, link: `claude://claude.ai/epitaxy/${String(e.session_id)}` },
+    ),
   }))
+  on('process.run', ($, e) => {
+    opened.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+  })
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
     result: '',
     text: JSON.stringify([
@@ -132,9 +141,12 @@ test('other sessions draw with their reported progress, and only started ones sw
 
   await ui.press({ key: 'open:local_a' })
   expect(focused).toEqual(['local_a'])
+  expect(opened).toEqual([])
+  // One this session did not start opens through its claude:// link.
   await ui.press({ key: 'open:local_b' })
   expect(focused).toEqual(['local_a'])
-  expect(toasts.join('\n')).toContain('請從側邊欄點開「Fix upload」')
+  expect(opened).toEqual([['rundll32', 'url.dll,FileProtocolHandler', 'claude://claude.ai/epitaxy/local_b']])
+  expect(toasts).toEqual([])
 
   // × hides a session for every session, until it reports something newer.
   await ui.press({ key: 'close:local_b' })
@@ -209,7 +221,7 @@ test('every request gets a row that "current" updates and the turn closes', asyn
   await ui.unmount()
 })
 
-test('a failed sync shows a warning row until a sync succeeds again', async ($, on) => {
+test('syncs failing in a row show a warning row until a sync succeeds again', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   let listed = 'not json'
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
@@ -228,13 +240,58 @@ test('a failed sync shows a warning row until a sync succeeds again', async ($, 
   await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
 
+  // One failed sync is likely the shared file caught mid-write: no warning yet.
   await clock.advance(1_500)
   let texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.join(' ')).not.toContain('同步失敗')
+  await clock.advance(20_000)
+  texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts.join(' ')).toContain('同步失敗')
 
   listed = '[]'
   await clock.advance(10_000)
   texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.join(' ')).not.toContain('同步失敗')
+  await ui.unmount()
+})
+
+test('a store read caught mid-write keeps the rows last read', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
+  let isBroken = false
+  const entry = {
+    id: 'local_b',
+    title: 'Fix upload',
+    updatedAt: Date.parse('2026-10-20T09:59:00Z'),
+    tasks: [{ id: 'up', title: 'localStorage 上傳', percent: 51, etaMinutes: 15, status: 'running', startedAt: Date.parse('2026-10-20T09:57:00Z'), updatedAt: Date.parse('2026-10-20T10:00:00Z'), reports: 2 }],
+  }
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
+  on('store.get', ($, e) => {
+    if (isBroken) return { deny: 'store file is malformed (JSON Parse error: Unexpected EOF)' } as never
+    return { value: e.key === 's:local_b' ? entry : undefined } as never
+  })
+  on('store.set', () => ({ value: undefined }) as never)
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, () => ({
+    result: '',
+    text: JSON.stringify({ sessionId: 'local_me', title: '進度條 mod' }),
+  }))
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
+    result: '',
+    text: JSON.stringify([{ sessionId: 'local_b', title: 'Fix upload', isRunning: true, lastActivityAt: '2026-10-20T09:59:00Z' }]),
+  }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__progress-bars__${e.name}` } }) as never)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  await clock.advance(1_500)
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('localStorage 上傳')
+  isBroken = true
+  await clock.advance(10_000)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toContain('localStorage 上傳')
   expect(texts.join(' ')).not.toContain('同步失敗')
   await ui.unmount()
 })
