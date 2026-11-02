@@ -296,6 +296,63 @@ test('a store read caught mid-write keeps the rows last read', async ($, on) => 
   await ui.unmount()
 })
 
+test('once a day the store drops what no band can draw again, and keeps every row still shown', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
+  const task = (id: string) => ({ id, title: id, percent: 100, etaMinutes: null, status: 'done', startedAt: 1, updatedAt: 2 })
+  const store = new Map<string, unknown>([
+    ['s:local_b', { id: 'local_b', title: 'Alive', updatedAt: 2, tasks: [task('up'), task('a/b')] }],
+    ['s:local_archived', { id: 'local_archived', title: 'Archived', updatedAt: 2, tasks: [task('x')] }],
+    ['s:local_deleted', { id: 'local_deleted', title: 'Deleted', updatedAt: 2, tasks: [task('y')] }],
+    ['sync:local_b', 'ok'],
+    ['sync:last-error', 'error: x'],
+    [
+      'hidden',
+      { local_b: 5, 'local_b/up': 5, 'local_b/a/b': 5, 'local_b/cleared': 5, local_archived: 5, 'local_deleted/y': 5, local_unread: 5 },
+    ],
+  ])
+  let lookups = 0
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
+  on('store.get', ($, e) => ({ value: store.get(e.key) }) as never)
+  on('store.set', ($, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined } as never
+  })
+  on('store.delete', ($, e) => {
+    store.delete(e.key)
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: [...store.keys()] }) as never)
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__get_session' }, ($, e) => {
+    const id = String(e.session_id)
+    if (id === 'self') return { result: '', text: JSON.stringify({ sessionId: 'local_me', title: '進度條 mod' }) }
+    lookups++
+    if (id === 'local_deleted') return { result: '', isError: true, text: `Session ${id} not found.` } as never
+    // A lookup that fails for any other reason keeps what it holds.
+    if (id === 'local_unread') return { result: '', isError: true, text: 'app not reachable' } as never
+    return { result: '', text: JSON.stringify({ sessionId: id, isArchived: id === 'local_archived' }) }
+  })
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
+    result: '',
+    text: JSON.stringify([{ sessionId: 'local_b', title: 'Alive', isRunning: true, lastActivityAt: '2026-10-20T09:59:00Z' }]),
+  }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__progress-bars__${e.name}` } }) as never)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  await clock.advance(1_500)
+
+  expect([...store.keys()].filter(k => k !== 'cleanedAt').sort()).toEqual(['hidden', 's:local_b', 's:local_me', 'sync:last-error'])
+  expect(Object.keys(store.get('hidden') as object).sort()).toEqual(['local_b', 'local_b/a/b', 'local_b/up', 'local_unread'])
+
+  // Another session starting the same day leaves it to tomorrow.
+  const before = lookups
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  await clock.advance(1_500)
+  expect(lookups).toBe(before)
+})
+
 test('this session draws once though the app lists it, and its rows keep updating', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-24T00:00:19Z') })
   const store = new Map<string, unknown>()

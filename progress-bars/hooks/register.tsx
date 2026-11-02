@@ -24,6 +24,9 @@ const SYNC_MS = 10_000
 const FAILS_TO_WARN = 3
 /** Store key of the sessions closed with ×, shared by every session: id → when */
 const HIDDEN_KEY = 'hidden'
+/** Store key of when a session last cleaned the store, so one a day does it */
+const CLEANED_KEY = 'cleanedAt'
+const CLEAN_MS = 24 * 3600_000
 
 const GUIDE = `# Progress bars
 The person watches a progress band above the prompt. Every request they send already has its own row there, opened when the turn starts and ticked when it ends, under the id \`current\`. When answering takes more than a couple of steps, call \`${TOOL_ID}\` with \`id: "current"\` and your honest \`percent\` done once you know the plan, then after each meaningful step with \`percent\` and, once you have a basis, \`eta_minutes\` left (the row is closed for you when the turn ends). Use a separate stable \`id\` and a short \`title\` only for work that runs beside it (a side session you started, a long build); close those with \`status: "done"\` or \`"failed"\`. Subagents you start with the Agent tool are tracked on their own. Never skip the updates on multi-step work.`
@@ -170,7 +173,11 @@ export const register: Register = on => {
         }
 
         if (!me.isDesktop) return
-        const listed = await $.tool.call({ tool: LIST_SESSIONS, limit: 40 } as never)
+        if (!isCleaned) {
+          isCleaned = true
+          void cleanOnce(me.id)
+        }
+        const listed =await $.tool.call({ tool: LIST_SESSIONS, limit: 40 } as never)
         const sessions = parseJson(listed.text)
         if (!Array.isArray(sessions)) {
           throw new Error(`list_sessions: ${String(listed.text ?? listed.deny ?? '').slice(0, 200)}`)
@@ -219,6 +226,62 @@ export const register: Register = on => {
         isSyncing = false
       }
     }
+
+    // Once a day, drop from the shared store what no band can draw again: the
+    // entries of sessions the app archived or deleted (a band skips those),
+    // × marks for them or for tasks their entry no longer holds, and the
+    // per-session sync status no version writes any more. Rows still drawn
+    // stay until the person closes them.
+    let isCleaned = false
+    const cleanOnce = async (meId: string) => {
+      try {
+        const now = await $.clock.now()
+        if (now - Number((await $.store.get(CLEANED_KEY)) ?? 0) < CLEAN_MS) return
+        // Claimed first: sessions start together when the app does.
+        await $.store.set(CLEANED_KEY, now)
+
+        const keys = await $.store.keys()
+        const marks = ((await $.store.get(HIDDEN_KEY)) ?? {}) as Record<string, number>
+        const ids = new Set([...keys.filter(k => k.startsWith('s:')).map(k => k.slice(2)), ...Object.keys(marks).map(k => k.split('/')[0] ?? k)])
+        const gone = new Set<string>()
+        for (const id of ids) {
+          if (id === meId) continue
+          const got = await $.tool.call({ tool: GET_SESSION, session_id: id } as never).catch(() => undefined)
+          if (got === undefined) continue
+          const info = parseJson(got.text) as { isArchived?: boolean } | null
+          const answer = `${String(got.text ?? '')} ${String(got.deny ?? '')}`
+          if (info?.isArchived === true || (info === null && /not found/i.test(answer))) gone.add(id)
+        }
+
+        const taskIds = new Map<string, Set<string>>()
+        for (const k of keys) {
+          const id = k.slice(2)
+          if (!k.startsWith('s:') || gone.has(id)) continue
+          const entry = (await $.store.get(k)) as SessionEntry | undefined
+          if (entry !== undefined) taskIds.set(id, new Set(entry.tasks.map(t => t.id)))
+        }
+
+        for (const k of keys) {
+          const isGoneEntry = k.startsWith('s:') && gone.has(k.slice(2))
+          const isOldStatus = k.startsWith('sync:') && k !== 'sync:last-error'
+          if (isGoneEntry || isOldStatus) await $.store.delete(k)
+        }
+        // Read again: a × pressed meanwhile stays.
+        const latest = ((await $.store.get(HIDDEN_KEY)) ?? {}) as Record<string, number>
+        const kept = Object.fromEntries(
+          Object.entries(latest).filter(([k]) => {
+            const [id = k, taskId] = k.split(/\/(.*)/s)
+            if (gone.has(id)) return false
+            const held = taskIds.get(id)
+            return taskId === undefined || held === undefined || held.has(taskId)
+          }),
+        )
+        if (Object.keys(kept).length !== Object.keys(latest).length) await $.store.set(HIDDEN_KEY, kept)
+      } catch {
+        // A read caught mid-write: tomorrow's clean tries again.
+      }
+    }
+
     $.clock.after(1_000, () => void syncOnce())
     $.clock.every(SYNC_MS, () => void syncOnce())
 
