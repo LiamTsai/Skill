@@ -207,3 +207,19 @@ test('search matches characters in order with gaps, best match first', async ($,
     await library.unmount()
   }
 })
+
+test('the button beside the footer mode labels opens the library', async ($, on) => {
+  const { opened } = engine(on)
+  on('ui.render', { component: 'SessionMode' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>focus</Text>
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const modes = await $.ui.mount({ plugin: 'prompt-library', component: 'SessionMode', props: { modes: ['focus'] }, surface })
+    expect(await texts(modes)).toContain('focus')
+    await modes.press({ key: 'mode:prompts' })
+    await modes.unmount()
+  }
+  expect(opened).toEqual(['prompt-library', 'prompt-library'])
+})

@@ -154,6 +154,22 @@ export const register: Register = on => {
     )
   })
 
+  // Trial: the same button beside the mode labels in the prompt footer, to see
+  // whether the desktop app draws that site near its model picker.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const below = await next(e)
+    const { Box, Button } = $.ui.resolve(e)
+    const open = <Button key="mode:prompts" plain label="☰ 提示詞" onPress={() => openLibrary($)} />
+    return below ? (
+      <Box flexDirection="row" gap={1}>
+        {open}
+        {below}
+      </Box>
+    ) : (
+      open
+    )
+  })
+
   // A ☆ 存 button that shows while the pointer is over one of your own prompts.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const below = await next(e)
