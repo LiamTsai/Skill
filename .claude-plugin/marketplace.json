@@ -11,6 +11,11 @@
       "name": "retro-me",
       "source": "./retro-me",
       "description": "偵測你在糾正 Claude 時主動詢問復盤，產生 AGENTS.md / Skill 修改建議，一鍵套用"
+    },
+    {
+      "name": "prompt-library",
+      "source": "./prompt-library",
+      "description": "把送出過的提示詞存起來（存之前、存之後都能編輯），從提示詞庫填回輸入框"
     }
   ]
 }

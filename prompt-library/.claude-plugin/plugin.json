@@ -1,0 +1,11 @@
+{
+  "name": "prompt-library",
+  "version": "0.1.0",
+  "description": "Save prompts you sent (editing them first or later) and fill them back into the prompt box from a library pane",
+  "author": {
+    "name": "LiamTsai"
+  },
+  "repository": "https://github.com/LiamTsai/Skill",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
