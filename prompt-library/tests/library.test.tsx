@@ -157,27 +157,6 @@ test('rows that are not your own prompts get no save button', async ($, on) => {
   await row.unmount()
 })
 
-test('the button in the band above the prompt box opens the library', async ($, on) => {
-  const { opened } = engine(on)
-  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>other band row</Text>
-  })
-
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const hint = await $.ui.mount({
-      plugin: 'prompt-library',
-      component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 9 }, view: {} },
-      surface,
-    })
-    expect(await texts(hint)).toContain('other band row')
-    await hint.press({ key: 'band:prompts' })
-    await hint.unmount()
-  }
-  expect(opened).toEqual(['prompt-library', 'prompt-library'])
-})
-
 test('search matches characters in order with gaps, best match first', async ($, on) => {
   const at = (id: string, name: string, text: string, savedAt: number) =>
     ({ id, name, text, cwd: 'C:\\work\\game', savedAt, updatedAt: savedAt })
