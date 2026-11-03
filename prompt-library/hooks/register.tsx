@@ -137,13 +137,15 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A button at the end of the hint line under the prompt box opens the library.
-  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+  // A button in the band right above the prompt box opens the library; the
+  // desktop app draws no hint line under its prompt box, but it draws the band.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const below = await next(e)
+    if (e.props.hasSurvey) return below
     const { Box, Button } = $.ui.resolve(e)
-    const open = <Button key="hint:prompts" plain label="☰ 提示詞" onPress={() => openLibrary($)} />
+    const open = <Button key="band:prompts" plain label="☰ 提示詞" onPress={() => openLibrary($)} />
     return below ? (
-      <Box flexDirection="row" gap={2}>
+      <Box flexDirection="column">
         {below}
         {open}
       </Box>
