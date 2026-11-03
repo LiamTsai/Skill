@@ -18,6 +18,8 @@ declare module 'claude-code' {
       draft: Draft | null
       lastSent: string
       isHereOnly: boolean
+      /** What the library's search field holds */
+      query: string
       /** The id whose 刪除 was pressed once and waits for 確定 */
       deleting: string | null
     }

@@ -1,6 +1,6 @@
 {
   "name": "prompt-library",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Save prompts you sent (editing them first or later) and fill them back into the prompt box from a library pane",
   "author": {
     "name": "LiamTsai"

@@ -27,6 +27,7 @@ function engine(on: On, seed: Record<string, unknown> = {}) {
   mock.clock(on)
   const store = new Map(Object.entries(seed))
   const fills: Array<{ text: string; mode?: string }> = []
+  const opened: string[] = []
   on('store.get', ($, e) => ({ value: store.get(e.key) }) as never)
   on('store.set', ($, e) => {
     store.set(e.key, e.value)
@@ -36,7 +37,10 @@ function engine(on: On, seed: Record<string, unknown> = {}) {
     const { Text } = $.ui.resolve(e)
     return <Text>engine row</Text>
   })
-  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } } as never
+  })
   on('ui.close', () => ({ value: undefined }) as never)
   on('ui.focus', () => ({ value: undefined }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
@@ -48,7 +52,7 @@ function engine(on: On, seed: Record<string, unknown> = {}) {
     fills.push({ text: e.text, mode: e.mode })
     return { isFilled: true } as never
   })
-  return { fills, store }
+  return { fills, store, opened }
 }
 
 const texts = async (ui: { findAll: (q: { type: 'Text' }) => Promise<Array<{ text: string }>> }) =>
@@ -151,4 +155,55 @@ test('rows that are not your own prompts get no save button', async ($, on) => {
   })
   expect(await row.find({ key: 'save:m1' })).toBeUndefined()
   await row.unmount()
+})
+
+test('the button on the hint line under the prompt box opens the library', async ($, on) => {
+  const { opened } = engine(on)
+  on('ui.render', { component: 'PromptHint' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>? for shortcuts</Text>
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const hint = await $.ui.mount({
+      plugin: 'prompt-library',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: '? for shortcuts' },
+      surface,
+    })
+    expect(await texts(hint)).toContain('? for shortcuts')
+    await hint.press({ key: 'hint:prompts' })
+    await hint.unmount()
+  }
+  expect(opened).toEqual(['prompt-library', 'prompt-library'])
+})
+
+test('search matches characters in order with gaps, best match first', async ($, on) => {
+  const at = (id: string, name: string, text: string, savedAt: number) =>
+    ({ id, name, text, cwd: 'C:\\work\\game', savedAt, updatedAt: savedAt })
+  engine(on, {
+    prompts: [
+      at('a', '公會戰規格', '寫一份公會戰報名規格', 1),
+      at('b', '重構', '把這個函式拆成兩個，保留測試', 2),
+      at('c', '週報', '整理本週公會活動與戰鬥數據', 3),
+    ],
+  })
+  await $.session.start({ cwd: 'C:\\work\\game', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const library = await $.ui.mount({ ...LIBRARY, surface })
+    await library.input({ key: 'lib:search', text: '公戰', kind: 'change' })
+    const names = (await library.findAll({ type: 'Text' })).map(t => t.text).filter(t => ['公會戰規格', '重構', '週報'].includes(t))
+    expect(names).toEqual(['公會戰規格', '週報'])
+
+    await library.input({ key: 'lib:search', text: '拆 測試', kind: 'change' })
+    expect(await texts(library)).toContain('重構')
+    expect(await texts(library)).not.toContain('公會戰規格')
+
+    await library.input({ key: 'lib:search', text: '不存在的字', kind: 'change' })
+    expect(await texts(library)).toContain('找不到符合「不存在的字」的提示詞。')
+
+    await library.input({ key: 'lib:search', text: '', kind: 'change' })
+    await library.unmount()
+  }
 })

@@ -10,6 +10,7 @@ const draft = atom({ plugin: 'prompt-library', key: 'draft' } as const, null)
 const lastSent = atom({ plugin: 'prompt-library', key: 'lastSent' } as const, '')
 const isHereOnly = atom({ plugin: 'prompt-library', key: 'isHereOnly' } as const, false)
 const deleting = atom({ plugin: 'prompt-library', key: 'deleting' } as const, null)
+const query = atom({ plugin: 'prompt-library', key: 'query' } as const, '')
 
 const LIBRARY = 'prompt-library'
 const EDITOR = 'prompt-edit'
@@ -26,6 +27,39 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s
 const isPrompt = (v: unknown): v is SavedPrompt =>
   typeof v === 'object' && v !== null && typeof (v as SavedPrompt).id === 'string' && typeof (v as SavedPrompt).text === 'string'
 const asList = (v: unknown): SavedPrompt[] => (Array.isArray(v) ? v.filter(isPrompt) : [])
+
+// How well `term` matches `hay` when its characters appear in order with gaps
+// allowed (公戰 finds 公會戰): consecutive characters and ones at a word's start
+// count more; -1 when they do not all appear.
+function subsequence(term: string, hay: string): number {
+  let i = 0
+  let last = -2
+  let score = 0
+  for (let j = 0; j < hay.length && i < term.length; j++) {
+    if (hay[j] !== term[i]) continue
+    score += j === last + 1 ? 3 : 1
+    if (j === 0 || /[\s_\-/.，。]/.test(hay[j - 1] ?? '')) score += 2
+    last = j
+    i++
+  }
+  return i === term.length ? score : -1
+}
+
+// Every space-separated term must match the name or the text; a match in the
+// name counts double. null when the prompt does not match.
+function fuzzy(q: string, p: SavedPrompt): number | null {
+  const terms = q.toLowerCase().split(/\s+/).filter(t => t !== '')
+  const name = p.name.toLowerCase()
+  const text = p.text.toLowerCase()
+  let total = 0
+  for (const t of terms) {
+    const inName = subsequence(t, name)
+    const best = Math.max(inName < 0 ? -1 : inName * 2, subsequence(t, text))
+    if (best < 0) return null
+    total += best
+  }
+  return total
+}
 
 // Read the store fresh on every change, so a prompt another session saved
 // meanwhile is kept.
@@ -48,6 +82,7 @@ async function reload($: EngineInterface) {
 
 async function openLibrary($: EngineInterface) {
   await reload($)
+  await update($, query, () => '')
   await $.ui.open({ id: LIBRARY, title: '提示詞庫' })
 }
 
@@ -100,6 +135,21 @@ export const register: Register = on => {
       await update($, lastSent, () => e.text)
     }
     return next(e)
+  })
+
+  // A button at the end of the hint line under the prompt box opens the library.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const below = await next(e)
+    const { Box, Button } = $.ui.resolve(e)
+    const open = <Button key="hint:prompts" plain label="☰ 提示詞" onPress={() => openLibrary($)} />
+    return below ? (
+      <Box flexDirection="row" gap={2}>
+        {below}
+        {open}
+      </Box>
+    ) : (
+      open
+    )
   })
 
   // A ☆ 存 button that shows while the pointer is over one of your own prompts.
@@ -188,8 +238,35 @@ export const register: Register = on => {
     const here = slash(await $.session.cwd())
     const hereOnly = await read($, isHereOnly)
     const pending = await read($, deleting)
+    const q = (await read($, query)).trim()
     const all = [...(await read($, prompts))].sort((a, b) => b.savedAt - a.savedAt)
-    const list = hereOnly ? all.filter(p => slash(p.cwd) === here) : all
+    const inScope = hereOnly ? all.filter(p => slash(p.cwd) === here) : all
+    // With a search, best match first; ties keep the newest first.
+    const list =
+      q === ''
+        ? inScope
+        : inScope
+            .map(p => ({ p, score: fuzzy(q, p) }))
+            .filter((m): m is { p: SavedPrompt; score: number } => m.score !== null)
+            .sort((a, b) => b.score - a.score)
+            .map(m => m.p)
+    // Mobile draws no text field.
+    const search =
+      e.surface === 'mobile'
+        ? null
+        : (() => {
+            const { Input } = $.ui.resolve(e)
+            return (
+              <Input
+                key="lib:search"
+                label="搜尋"
+                placeholder="名稱或內容，字可以不連續"
+                value={q}
+                onInput={v => update($, query, () => v)}
+                onSubmit={v => update($, query, () => v)}
+              />
+            )
+          })()
 
     const fill = async (p: SavedPrompt) => {
       const filled = await $.prompt.fill({ text: p.text, mode: 'insert' })
@@ -211,11 +288,14 @@ export const register: Register = on => {
           />
           <Button key="lib:draft" label="存目前的草稿" onPress={saveDraft} />
         </Box>
+        {all.length > 0 && search}
         {list.length === 0 && (
           <Text dimColor>
             {all.length === 0
               ? '還沒有存任何提示詞。滑鼠移到你送出的訊息上按「☆ 存」，或用 /save-prompt 存上一則。'
-              : '這個專案還沒有存過提示詞。'}
+              : q !== ''
+                ? `找不到符合「${q}」的提示詞。`
+                : '這個專案還沒有存過提示詞。'}
           </Text>
         )}
         {list.map(p => (
